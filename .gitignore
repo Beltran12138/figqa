@@ -1,0 +1,19 @@
+# 产物 / 解压中间结果（可由脚本重新生成）
+out/
+extracted/
+
+# 依赖
+node_modules/
+
+# 工具 / IDE 缓存
+.impeccable/
+
+# 样本数据（可能含真实设计资产，不入库）
+*.fig
+*.html
+
+# 会话日志 / 原始 dump
+fig-conversation*.md
+_exp2.json
+_raw2.json
+*.log
