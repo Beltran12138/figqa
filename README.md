@@ -40,14 +40,17 @@
 | 1c | 改现有节点任意字段 | 满树 name 加前缀被 Figma 应用 |
 | 1d | 克隆现有节点加新节点 | 4 层 mutation 全被 Figma 接受 |
 | 1e | 半克隆造新 TEXT（中文渲染） | 模板提取字段集 → 填新值，中文通过 |
+| 1f | **加图片填充**（IMAGE blob） | 新图写 `images/<sha1>` + IMAGE paint 指向 → Figma import 渲染红图通过 |
 
 **关键推论**：Figma import 时按 `phase=CREATED` **全量重建树 + 完全信任每字段值** → nodeChange 每字段可写，非只读黑盒。
+
+**IMAGE 机制（Phase 1f 实证）**：图片字节按内容寻址存 ZIP `images/<sha1hex>`（文件名 = SHA1(bytes) 的 hex，20 字节）；节点 `fillPaints[]` 用 `Paint{type:IMAGE, image:{hash:<sha1 20B>}, imageScaleMode:FILL, originalImageWidth/Height}` 引用。`image.hash` == `images/` 文件名 == `SHA1(bytes)` 三者一致。
 
 ## 未验证边界（别外推）
 
 - 纯盲猜字段集从零造（无实用必要，总能提取模板）
 - VECTOR·path / INSTANCE·componentId 从头建
-- **IMAGE blob**（图片填充未处理）
+- IMAGE **外部真实图**的精确 `originalImageWidth/Height`（`add-image.mjs` 传外部图时尺寸用占位 400，未从图头解析）+ `imageThumbnail`（本次未给，Figma 仍渲染）
 - 全量复杂布局精度（501 行 HTML 未整页跑通）
 
 ---
@@ -61,6 +64,9 @@ fig-format-explore/
 ├── mutate-fig.mjs        # write: 改现有节点字段
 ├── add-node.mjs          # write: 克隆加新节点（v4 成功）
 ├── inspect-untitled.mjs  # read:  探查未命名 .fig
+├── probe-images.mjs      # read:  定位 IMAGE 存储结构（images/ + IMAGE paint）
+├── crack-image-hash.mjs  # read:  确定 images/ 文件名 = SHA1(bytes)
+├── add-image.mjs         # write: 加图片填充（sha1 → images/ + IMAGE paint，1f 成功）
 ├── verify-addnode.mjs    # 独立核实（不收自报）
 ├── verify-v4.mjs         # 独立核实
 ├── FIG_FORMAT_NOTES.md   # read 侧格式笔记（格式链细节）
@@ -86,6 +92,7 @@ node reencode-fig.mjs                        # write 侧 round-trip
 2. **`parentIndex.position` 排序键避碰**——克隆节点复用源 position 会碰撞。解法 `pickFreeSingleCharPosition()`：扫 parent 子节点已用 position，挑未占用单字符（实证选 code 44）。
 3. **`fillPaintes`/`fillGeometry` 不强制配对**——改 size 致原 geometry path 失效时 `delete fillGeometry`（paints 留），Figma 仍正常渲染。证伪了早期「必须配对」预判。
 4. **半克隆 TEXT 字段集（30 个）**——纯从零盲猜凑不齐，先从模板 `.fig` 提取真实 TEXT 字段集照抄结构，只填新值；`derivedTextData` 留空让 Figma 导入后自己算 layout。
+5. **IMAGE = SHA1 内容寻址**——加图不是塞 blob，是把字节写进 ZIP `images/<sha1hex>`（文件名就是 `SHA1(bytes)` 的 hex），再让 `Paint.image.hash` 填**同一个 SHA1 的 20 字节原始值**。三者必须一致，Figma 才认。`imageThumbnail` 可省，`imageScaleMode:FILL` + 原始宽高即可渲染。
 
 ---
 
