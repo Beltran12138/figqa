@@ -19,10 +19,13 @@ warn  [color/off-token] #E7E7E7 used 18557x — matches no variable and no confi
 warn  [radius/max]      corner radius 12px exceeds max 6px
                         917 occurrences
 
-9 rogue font families, 799 auto-fixable colours
+1238 errors, 40717 warnings
+799 of them are auto-fixable: figqa fix "design-system.fig" -o fixed.fig
 $ echo $?
 1
 ```
+
+(8 unapproved font families across those `font/allowlist` errors, elided here for length.)
 
 That run took one command on a 45 MB, 114,210-node file. Figma was never open.
 
