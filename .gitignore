@@ -17,3 +17,4 @@ fig-conversation*.md
 _exp2.json
 _raw2.json
 *.log
+prd-to-fig-finance.mjs

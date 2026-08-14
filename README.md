@@ -1,121 +1,199 @@
-# fig-format-explore
+# figqa
 
-> **写侧 code-to-design 探索**：用代码程序化生成/修改 Figma `.fig` 文件，脱离 Figma runtime。
-> ⚠️ **好奇驱动的研究脚手架，非生产即用解。** 生产改图请用 [Figma MCP `use_figma`](https://help.figma.com/hc/en-us/articles/32132100833559)（Plugin API，即时可视）。
+**Design-system QA for Figma files — with no Figma.**
 
----
+No plugin, no editor runtime, no account, no network. `figqa` reads the `.fig` binary directly, reports design-system violations with a CI-usable exit code, and can **bind hard-coded colours to design tokens by writing the file back**.
 
-## 这不是首创——先看社区生态
+```console
+$ figqa lint "design-system.fig" --rules rules/example.json
 
-`.fig` 逆向**已有成熟开源生态**。本仓库是其中一份实现，不是从零突破。做之前先看这些：
+design-system.fig — 114210 nodes, 12 colour variables (1 local / 11 library)
 
-| 项目 | 侧 | 说明 |
-|---|---|---|
-| [evanw/kiwi](https://github.com/evanw/kiwi) | 基础库 | Figma 前 CTO Evan Wallace 的 Kiwi 二进制序列化格式（`.fig` 底层编码）。[issue #17](https://github.com/evanw/kiwi/issues/17)/[#23](https://github.com/evanw/kiwi/issues/23) 是格式讨论 canonical |
-| [madebyevan.com/fig-file-parser](https://madebyevan.com/figma/fig-file-parser/) | read | Evan 本人的在线 `.fig` 解析器（探索用） |
-| [fig-kiwi](https://www.jsdelivr.com/package/npm/fig-kiwi) (npm) | read/write | 读写 `.fig` + pasteboard，带 TS 定义 |
-| [bilalba/fig-mcp](https://github.com/bilalba/fig-mcp) | read + MCP | **已经有人把 `.fig` 做成 MCP server** 给 AI 抽设计信息 |
-| [allan-simon/figma-kiwi-protocol](https://github.com/allan-simon/figma-kiwi-protocol) | read | WebSocket Kiwi 协议解码（实时同步方向） |
-| [Grida io-figma](https://grida.co/docs/wg/feat-fig) | read/import | Figma import & translation pipeline |
-| [Albert Sikkema – Reverse-engineering Figma Make](https://www.albertsikkema.com/ai/development/tools/reverse-engineering/2026/01/23/reverse-engineering-figma-make-files.html) | 教程 | 2026-01 Figma Make 二进制逆向（ZIP + Kiwi） |
-| [Figma Inside (easylogic/Medium)](https://easylogic.medium.com/figma-inside-fig-%ED%8C%8C%EC%9D%BC-%EB%B6%84%EC%84%9D-7252bef141da) | 教程 | `.fig` 分析 walkthrough |
+ERROR [color/unbound]   hard-coded #2565CF but local variable "主色" holds exactly this value
+                        799 occurrences, e.g. "placeholder" (TEXT) fillPaints
+ERROR [font/allowlist]  font "Noto Sans SC" is not in the allowlist [PingFang SC, Inter]
+                        182 occurrences, e.g. "Home" (TEXT)
+ERROR [font/allowlist]  font "Open Sans" is not in the allowlist [PingFang SC, Inter]
+                        87 occurrences, e.g. " text" (TEXT)
+warn  [color/off-token] #E7E7E7 used 18557x — matches no variable and no configured token
+warn  [radius/max]      corner radius 12px exceeds max 6px
+                        917 occurrences
 
-**本仓库的差异化（窄切口）**：上面多数是 **read 侧**（parse/inspect/render）或 **MCP 只读**。本仓库聚焦 **write 侧**——程序化**生成/修改** `.fig` 并被 Figma import 接受，附带实操踩坑。
-
----
-
-## ⚠️ Figma 官方立场（必须读）
-
-> Figma 在 [evanw/kiwi#23](https://github.com/evanw/kiwi/issues/23) 明说：`.fig` 是**内部实现细节，非 public API，不保证版本间稳定**。任何 parser/writer 可能在 Figma 更新后失效。生产集成请用 [Figma REST API](https://www.figma.com/developers/api)。
-
-本仓库所有验证基于 **2026-07 Figma version 106**。升级后可能失效，自担风险。
-
----
-
-## 已验证能力（Phase 1a-1e，高置信，Figma import 实测）
-
-| Phase | 能力 | 实证 |
-|---|---|---|
-| 1a/1b | round-trip（读→decode→encode→zstd→ZIP） | Figma import「一模一样」 |
-| 1c | 改现有节点任意字段 | 满树 name 加前缀被 Figma 应用 |
-| 1d | 克隆现有节点加新节点 | 4 层 mutation 全被 Figma 接受 |
-| 1e | 半克隆造新 TEXT（中文渲染） | 模板提取字段集 → 填新值，中文通过 |
-| 1f | **加图片填充**（IMAGE blob） | 新图写 `images/<sha1>` + IMAGE paint 指向 → Figma import 渲染红图通过 |
-
-**关键推论**：Figma import 时按 `phase=CREATED` **全量重建树 + 完全信任每字段值** → nodeChange 每字段可写，非只读黑盒。
-
-**IMAGE 机制（Phase 1f 实证）**：图片字节按内容寻址存 ZIP `images/<sha1hex>`（文件名 = SHA1(bytes) 的 hex，20 字节）；节点 `fillPaints[]` 用 `Paint{type:IMAGE, image:{hash:<sha1 20B>}, imageScaleMode:FILL, originalImageWidth/Height}` 引用。`image.hash` == `images/` 文件名 == `SHA1(bytes)` 三者一致。
-
-## 未验证边界（别外推）
-
-- 纯盲猜字段集从零造（无实用必要，总能提取模板）
-- VECTOR·path / INSTANCE·componentId 从头建
-- IMAGE **外部真实图**的精确 `originalImageWidth/Height`（`add-image.mjs` 传外部图时尺寸用占位 400，未从图头解析）+ `imageThumbnail`（本次未给，Figma 仍渲染）
-- 全量复杂布局精度（501 行 HTML 未整页跑通）
-
----
-
-## 脚手架清单（本机核实 2026-07-20）
-
-```
-fig-format-explore/
-├── dump-fig.mjs          # read:  .fig → Message JSON + 字段样本
-├── reencode-fig.mjs      # write: Message → zstd → ZIP（round-trip）
-├── mutate-fig.mjs        # write: 改现有节点字段
-├── add-node.mjs          # write: 克隆加新节点（v4 成功）
-├── inspect-untitled.mjs  # read:  探查未命名 .fig
-├── probe-images.mjs      # read:  定位 IMAGE 存储结构（images/ + IMAGE paint）
-├── crack-image-hash.mjs  # read:  确定 images/ 文件名 = SHA1(bytes)
-├── add-image.mjs         # write: 加图片填充（sha1 → images/ + IMAGE paint，1f 成功）
-├── verify-addnode.mjs    # 独立核实（不收自报）
-├── verify-v4.mjs         # 独立核实
-├── FIG_FORMAT_NOTES.md   # read 侧格式笔记（格式链细节）
-├── PRACTICE.md           # write 侧实践（本 README 的详细版）
-└── out/                  # 产物 + *-report.json（核实基准）
+9 rogue font families, 799 auto-fixable colours
+$ echo $?
+1
 ```
 
-## 复现
+That run took one command on a 45 MB, 114,210-node file. Figma was never open.
+
+---
+
+## Why this can exist
+
+Every Figma linter on the market is a **plugin** — it needs a person with an editor seat to open the file and click. That is fine for a designer's pre-handoff check and useless as a gate: a markdown standard nobody executes doesn't block anything.
+
+The obvious alternative is the REST API. It gets you halfway and then stops:
+
+| | read violations | **write the fix** |
+|---|---|---|
+| REST API | ✅ `GET /v1/files/:key` returns `boundVariables` | ❌ `POST /v1/files/:key/variables` accepts only `variableCollections` / `variableModes` / `variables` / `variableModeValues` — **it cannot bind a variable to a layer property** |
+| Plugin API | ✅ | ✅ but needs an editor runtime someone drives |
+| **writing `.fig`** | ✅ | ✅ **headless** |
+
+So auto-fixing token drift without a human in the loop has exactly one path: write the file. That is what `figqa fix` does, and it is verified against Figma import — see [Phase 1g](#verified-capability).
+
+---
+
+## Install
 
 ```bash
-cd fig-format-explore
-node dump-fig.mjs "path/to/your.fig"        # read 侧
-node reencode-fig.mjs                        # write 侧 round-trip
+git clone https://github.com/Beltran12138/figqa
+cd figqa && npm install          # kiwi-schema, adm-zip, fzstd
+node figqa.mjs --help
 ```
 
-依赖：Node 24+（内置 `zlib.zstdCompressSync`）。
+Node 24+ (needs the built-in `zlib.zstdCompressSync`).
+
+## Usage
+
+```bash
+figqa vars <file.fig>                      # list colour variables, local vs library-backed
+figqa lint <file.fig> [--rules r.json]     # report violations; exit 1 if any are error-level
+figqa fix  <file.fig> -o <out.fig> [--mark]  # bind hard-coded colours to matching variables
+```
+
+`--mark` prefixes every changed layer name with 🧪 so you can find them with Ctrl+F after importing. Use it the first time you run `fix` on a file you care about.
+
+## Rules
+
+Brand values live in the rule file, never in the code.
+
+```json
+{
+  "rules": {
+    "color/unbound":         "error",
+    "color/unbound-library": "warn",
+    "color/off-token":       ["warn",  { "tokens": ["#FFFFFF", "#2565CF"], "top": 8 }],
+    "radius/max":            ["warn",  { "max": 6, "allowPill": true }],
+    "font/allowlist":        ["error", { "families": ["PingFang SC", "Inter"] }],
+    "text/placeholder":      ["warn",  { "patterns": ["lorem", "TODO", "示例"] }]
+  }
+}
+```
+
+| rule | catches | auto-fix |
+|---|---|---|
+| `color/unbound` | a colour identical to a **local** variable's value, sitting unbound | ✅ |
+| `color/unbound-library` | same, but the variable is library-backed | ❌ not yet — see below |
+| `color/off-token` | colours matching no variable and no configured token, ranked by frequency | — |
+| `radius/max` | corner radius over the limit (pill radii excepted) | — |
+| `font/allowlist` | font families that drifted into the file | — |
+| `text/placeholder` | placeholder copy shipped as if it were real | — |
+
+Every rule is a **deterministic assertion**, not a model judgement. A rule either fires with a node path and a count, or it doesn't.
 
 ---
 
-## 写侧独有踩坑（read 侧笔记没有）
+## Verified capability
 
-1. **zstd 压缩用 Node `zlib`，非 `fzstd`**——`fzstd@0.1.1` 是纯解压器无 compress。写回必须 `zlib.zstdCompressSync`。
-2. **`parentIndex.position` 排序键避碰**——克隆节点复用源 position 会碰撞。解法 `pickFreeSingleCharPosition()`：扫 parent 子节点已用 position，挑未占用单字符（实证选 code 44）。
-3. **`fillPaintes`/`fillGeometry` 不强制配对**——改 size 致原 geometry path 失效时 `delete fillGeometry`（paints 留），Figma 仍正常渲染。证伪了早期「必须配对」预判。
-4. **半克隆 TEXT 字段集（30 个）**——纯从零盲猜凑不齐，先从模板 `.fig` 提取真实 TEXT 字段集照抄结构，只填新值；`derivedTextData` 留空让 Figma 导入后自己算 layout。
-5. **IMAGE = SHA1 内容寻址**——加图不是塞 blob，是把字节写进 ZIP `images/<sha1hex>`（文件名就是 `SHA1(bytes)` 的 hex），再让 `Paint.image.hash` 填**同一个 SHA1 的 20 字节原始值**。三者必须一致，Figma 才认。`imageThumbnail` 可省，`imageScaleMode:FILL` + 原始宽高即可渲染。
+Claims here are graded by how they were tested. "Self-read consistency" — decoding what you just encoded — is **not** evidence; it produced a confident false positive earlier in this project's history. The only accepted proof is importing the output into Figma and looking.
+
+| Phase | Capability | Proof |
+|---|---|---|
+| 1a/1b | round-trip: read → decode → encode → zstd → ZIP | imported, renders identically |
+| 1c | modify any field on an existing node | whole-tree name prefix applied by Figma |
+| 1d | add new nodes (cloned) | 4 layers of mutation accepted |
+| 1e | build new `TEXT` from a template field set | CJK renders correctly |
+| 1f | add image fills (`IMAGE` blob, SHA-1 content addressing) | imported, image renders |
+| **1g** | **bind a paint to a colour variable** | **imported, Figma's inspector shows the variable name** |
+
+Phase 1g detail — a bound paint differs from an unbound one by exactly one additive field, with the resolved `color` retained:
+
+```js
+colorVar: { value: { alias: { guid: {sessionID, localID} } },
+            dataType: "ALIAS", resolvedDataType: "COLOR" }
+```
+
+Positive control: `--mark` renames the same nodes it binds. Phase 1c already proved renames survive import, so "prefix appears but binding doesn't" would have been a clean negative rather than an ambiguous one. Of the 796 marked nodes, **0** carried a pre-existing binding, so the variable shown in Figma could only come from the written field.
+
+### Local vs library-backed variables
+
+This distinction decides whether a binding works at all, and it isn't documented anywhere else:
+
+```
+VariableID { guid, assetRef }        ← two fields, not redundant
+  local variable    → reference by guid       ✅ writable today
+  library variable  → reference by assetRef   ❌ not yet implemented
+```
+
+A library-backed variable is a **cached copy**: it carries `sourceLibraryKey`, its `variableSetID` points at an `{assetRef}` instead of a `{guid}`, and it usually comes with `visible:false`, `locked:true`, `variableScopes:[]`. Reference one by guid and Figma silently falls back to the raw colour — no error, no warning, nothing bound.
+
+This is the current ceiling and it is a real one: **in the test file, 11 of 12 variables were library-backed**. Teams publish their tokens as a library, so most real drift is not fixable until `assetRef` writing is proven. `figqa lint` reports those cases under `color/unbound-library` rather than pretending it can fix them.
+
+### Not verified — do not extrapolate
+
+- writing `assetRef` references (library variables) — the next experiment
+- binding non-colour variables (`strokeWeightVar`, `Effect.*Var`, `LayoutGrid.*Var`, responsive text vars) — the schema has slots for all of them; none tested
+- creating variables or variable collections from scratch
+- `VECTOR` paths and `INSTANCE.componentId` built from zero
+- whether bindings behave correctly across mode switches after import
+
+### Falsification conditions
+
+Findings here should be revised if:
+
+1. Figma rejects a `phase=CREATED` full-tree rebuild in some version → the whole write path fails
+2. a guid reference to a library-backed variable is observed working → the local/library rule is wrong
+3. `fillPaints` / `fillGeometry` mismatch starts breaking render → a documented workaround dies
+4. writing `assetRef` succeeds → the ceiling above moves
 
 ---
 
-## 为什么不做成 MCP / 不推荐生产用
+## How it works
 
-- **`bilalba/fig-mcp` 已经做了** `.fig` 的 MCP server（read 侧）。再做 write 侧 MCP = reinvent + 托管成本。
-- **生产改图用 MCP `use_figma` 性价比更高**：Plugin API `createXxx` 即时 return 可见，失败修正循环好调；`.fig` 写侧改完要 import 才看结果，调试痛苦。
-- **`.fig` 真优势只在**：离线 / 批量 / 无 Figma runtime / 无账号。这些场景狭窄。
+```
+.fig = ZIP { canvas.fig (STORE), thumbnail.png (STORE), meta.json (DEFLATE), images/<sha1> }
+canvas.fig = "fig-kiwi" + u32 version + [u32 len + chunk] × 2
+   chunk 0 = kiwi schema   (deflateRaw)
+   chunk 1 = Message       (zstd, magic 28 B5 2F FD) → nodeChanges[] + blobs[]
+```
 
-详见 [`PRACTICE.md` §5 成本对比](./PRACTICE.md)。
+The schema is embedded per file and read **dynamically**, not hardcoded from a snapshot — which is what lets this survive some amount of Figma schema drift.
+
+Gotchas that cost real time, in case you're building something similar:
+
+1. **zstd compression needs Node's `zlib`.** `fzstd` is a decompressor only; there is no `compress` in it.
+2. **Preserve every ZIP entry.** Rebuilding only `canvas.fig` / `thumbnail.png` / `meta.json` silently drops `images/` — the test file had 62 entries.
+3. **Alpha is part of a colour's identity.** Matching on RGB alone will happily "match" `#FFFFFF` against a variable whose value is `rgba(1,1,1,0.9)`. It cost this project a wrong headline number before the check was added.
+4. **`parentIndex.position` sort keys collide** when you clone a node; scan the parent's children and pick a free single character.
+5. **`fillPaints` and `fillGeometry` are not required to agree.** Deleting a stale geometry path leaves the fill rendering fine.
+
+Full format notes: [`research/FIG_FORMAT_NOTES.md`](research/FIG_FORMAT_NOTES.md) (read side) and [`research/PRACTICE.md`](research/PRACTICE.md) (write side). The `research/` directory holds the phase-by-phase scripts each capability was proven with, including the failed iterations.
 
 ---
 
-## 证伪条件（贝叶斯）
+## ⚠️ Figma's official position
 
-若以下证据出现，需修正本仓库结论：
-1. Figma 某版本拒绝 `phase=CREATED` 全量重建 → 关键推论失效
-2. `fillPaints`/`fillGeometry` 不配对导致渲染失败 → 踩坑 #3 失效
-3. 纯从零造 TEXT（无模板）成功 → 反逢迎边界收窄
-4. IMAGE blob 填充被验证可行 → 未验边界缩短
+Figma states in [evanw/kiwi#23](https://github.com/evanw/kiwi/issues/23) that `.fig` is an **internal implementation detail, not a public API, with no stability guarantee across versions**. Everything here was verified against **Figma version 106 (2026-07/08)** and may break on any update. For supported integrations use the [REST API](https://www.figma.com/developers/api).
 
----
+Treat `figqa fix` output as you would any generated artifact: keep the original, verify the result, don't run it against a file you can't restore.
+
+## Prior art
+
+`.fig` parsing is not new. This project's narrow claim is the **write** side, and specifically variable binding.
+
+| project | side | note |
+|---|---|---|
+| [evanw/kiwi](https://github.com/evanw/kiwi) | encoding | the binary format underneath `.fig` |
+| [madebyevan.com/fig-file-parser](https://madebyevan.com/figma/fig-file-parser/) | read | Evan Wallace's own explorer |
+| [fig-kiwi](https://www.npmjs.com/package/fig-kiwi) (npm) | read/write | only package advertising write; v0.0.1, unmaintained, ignores blobs |
+| [sunyui/figma-parser](https://github.com/sunyui/figma-parser) | read | offline parse + asset export |
+| [bilalba/fig-mcp](https://github.com/bilalba/fig-mcp) | read | `.fig` as an MCP server |
+| [Grida](https://grida.co/tools/fig) | read | in-browser inspector |
+| [Albert Sikkema](https://albertsikkema.com/ai/development/tools/reverse-engineering/2026/01/23/reverse-engineering-figma-make-files.html) | write-up | Figma Make binary walkthrough |
+
+For in-canvas linting with click-to-fix, [Design Lint](https://www.figma.com/community/plugin/801195587640428208/design-lint) and YADL are better tools. `figqa` is for the case they can't serve: no runtime, no seat, no human — a gate that runs in CI.
 
 ## License
 
-MIT。**不附担保**——`.fig` 格式不稳定（见上方 Figma 官方立场），本仓库代码可能随 Figma 版本更新失效。
+MIT. No warranty — see the stability warning above.

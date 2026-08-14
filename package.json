@@ -1,20 +1,34 @@
 {
-  "name": "fig-format-explore",
-  "version": "1.0.0",
-  "description": "Figma .fig binary format read/write exploration scaffold (unstable, not for production).",
-  "main": "index.js",
+  "name": "figqa",
+  "version": "0.1.0",
+  "description": "Design-system QA for Figma files, with no Figma. Lint a .fig offline and bind hard-coded colours to design tokens by writing the file back.",
   "scripts": {
-    "dump": "node dump-fig.mjs \"<path-to-your.fig>\""
+    "lint": "node figqa.mjs lint",
+    "vars": "node figqa.mjs vars",
+    "fix": "node figqa.mjs fix"
   },
-  "keywords": [],
+  "keywords": [
+    "figma",
+    "design-system",
+    "design-tokens",
+    "lint",
+    "fig",
+    "kiwi",
+    "ci",
+    "headless"
+  ],
   "author": "",
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
-    "@vetrivelcsamy/fig-kiwi-parser": "^0.0.2",
     "adm-zip": "^0.6.0",
-    "fig-kiwi": "^0.0.1",
     "fzstd": "^0.1.1",
     "kiwi-schema": "^0.5.0"
+  },
+  "bin": {
+    "figqa": "./figqa.mjs"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }
