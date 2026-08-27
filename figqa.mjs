@@ -275,11 +275,17 @@ function fix(handle, { mark }) {
 
 // ---------------------------------------------------------------- cli
 
-const [cmd, file, ...rest] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const [cmd, file, ...rest] = argv;
 const flag = (n) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
 const has = (n) => rest.includes(n);
 
-if (!cmd || !file || has("--help")) {
+// Asking for help is not a usage error: `figqa --help` prints the same text either way, but
+// only the missing-arguments case should fail. Scanned across all of argv because `--help`
+// lands in `cmd` when it is the only argument, and in `rest` when it follows a file.
+const wantsHelp = argv.some((a) => a === "--help" || a === "-h" || a === "help");
+
+if (wantsHelp || !cmd || !file) {
   console.log(`figqa — design-system QA for Figma files, with no Figma
 
   figqa vars <file.fig>
@@ -296,7 +302,7 @@ and its var() chains are resolved, including oklch; whatever could not be resolv
 reported rather than dropped.
 
 --mark prefixes changed layer names with 🧪 so you can find them with Ctrl+F in Figma.`);
-  process.exit(file ? 0 : 1);
+  process.exit(wantsHelp ? 0 : 1);
 }
 
 // A directory target is the code side: no .fig to open, different rules.
