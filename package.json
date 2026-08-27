@@ -1,7 +1,7 @@
 {
   "name": "figqa",
   "version": "0.1.0",
-  "description": "Design-system QA for Figma files, with no Figma. Lint a .fig offline and bind hard-coded colours to design tokens by writing the file back.",
+  "description": "Design-system QA for Figma files, with no Figma. Lint a .fig offline, check generated code against the same design system, and bind hard-coded colours to design tokens by writing the file back. No plugin, no seat, no Enterprise plan.",
   "scripts": {
     "lint": "node figqa.mjs lint",
     "vars": "node figqa.mjs vars",
@@ -12,10 +12,15 @@
     "design-system",
     "design-tokens",
     "lint",
+    "linter",
     "fig",
     "kiwi",
     "ci",
-    "headless"
+    "headless",
+    "design-ops",
+    "claude-code",
+    "agent-skill",
+    "ai-generated-code"
   ],
   "author": "",
   "license": "MIT",

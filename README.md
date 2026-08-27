@@ -70,7 +70,17 @@ cd figqa && npm install          # kiwi-schema, adm-zip, fzstd
 node figqa.mjs --help
 ```
 
-Node 24+ (needs the built-in `zlib.zstdCompressSync`).
+Node 24+ (needs the built-in `zlib.zstdCompressSync`). `npm link` puts `figqa` on PATH.
+
+### As a Claude Code skill
+
+The agent that just generated the UI is the one that should check it. Copy the skill and it will reach for `figqa` on its own:
+
+```bash
+cp -r skills/figqa ~/.claude/skills/     # or: ln -s "$PWD/skills/figqa" ~/.claude/skills/figqa
+```
+
+It documents which target answers which question, and — more usefully — the four claims the output does **not** support.
 
 ## Usage
 
