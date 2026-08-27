@@ -77,6 +77,7 @@ Node 24+ (needs the built-in `zlib.zstdCompressSync`).
 ```bash
 figqa vars <file.fig>                      # list colour variables, local vs library-backed
 figqa lint <file.fig> [--rules r.json]     # report violations; exit 1 if any are error-level
+figqa lint <dir> --system <file.fig>       # same, against generated code (see below)
 figqa fix  <file.fig> -o <out.fig> [--mark]  # bind hard-coded colours to matching variables
 ```
 
@@ -109,6 +110,47 @@ Brand values live in the rule file, never in the code.
 | `text/placeholder` | placeholder copy shipped as if it were real | — |
 
 Every rule is a **deterministic assertion**, not a model judgement. A rule either fires with a node path and a count, or it doesn't.
+
+---
+
+## Checking generated code against the same design system
+
+Point `lint` at a directory instead of a `.fig` and it checks the other artifact — the code an agent wrote — against the design system in the file.
+
+```console
+$ figqa lint ./generated-page --system design-system.fig
+
+./generated-page — 2 files, 6 colour literals, 3 var() references, 5 tokens defined
+checked against design-system.fig — 38 colour variable values
+
+ERROR [code/hardcoded-token] hard-coded #325BF6 — the design system defines "brand" with exactly this value
+      1 occurrence, e.g. src/App.tsx:5
+ERROR [code/hardcoded-token] hard-coded #9498A1 — the design system defines "text/secondary" with exactly this value
+      1 occurrence, e.g. src/App.tsx:6
+ERROR [code/dangling-token] var(--nope) is referenced 1x but defined nowhere in the tree
+      1 occurrence, e.g. src/App.tsx:4
+warn  [token/drift] --brand-stale is defined as #305BFF, which matches no variable in the design system — either deliberately custom, or copied before the library changed
+      1 occurrence, e.g. src/tokens.css:3
+warn  [color/off-token] #ABCDEF used 1x — matches no variable and no configured token
+      1 occurrence, e.g. src/App.tsx:7
+
+3 errors, 2 warnings
+$ echo $?
+1
+```
+
+| rule | catches |
+|---|---|
+| `code/hardcoded-token` | a colour literal whose exact value is a variable in the design system — the agent had a token and typed the hex instead |
+| `code/dangling-token` | `var(--x)` where nothing defines `--x`; it resolves to nothing at runtime and renders as an unstyled default, which a screenshot review will not catch |
+| `token/drift` | an alias token whose value matches no variable in the design system — copied once, then the library moved |
+
+**Matching is by value, never by name.** A Figma variable is called `background/Tab/up`; the code calls it `--bg-tab-up`. The two artifacts share no vocabulary, so names cannot join them — but a colour is a colour. This is also why no mapping file is needed.
+
+Two deliberate refusals, because a linter people uninstall is worse than no linter:
+
+- **A hex inside a token definition is not a violation.** Someone has to write the literal once; that is what an alias layer is *for*. Those go to `token/drift`, which asks a different question — does the value still agree with the system.
+- **`code/dangling-token` reports its own blind spot.** If the tree imports a stylesheet that could not be read — an uninstalled dependency, a bare package specifier — then a token defined in there is indistinguishable from one that was never defined. Rather than emit a page of false positives, the rule collapses to a single warning naming the stylesheets it could not open.
 
 ---
 

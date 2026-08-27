@@ -6,6 +6,11 @@
     "color/off-token": ["warn", { "tokens": ["#FFFFFF", "#000000", "#2565CF"], "top": 8 }],
     "radius/max": ["warn", { "max": 6, "allowPill": true }],
     "font/allowlist": ["error", { "families": ["PingFang SC", "Inter"] }],
-    "text/placeholder": ["warn", { "patterns": ["lorem", "占位", "示例", "待补充", "xxx", "Rag 123"] }]
+    "text/placeholder": ["warn", { "patterns": ["lorem", "占位", "示例", "待补充", "xxx", "Rag 123"] }],
+
+    "$comment2": "code-side rules — these fire when lint is pointed at a directory",
+    "code/hardcoded-token": "error",
+    "code/dangling-token": "error",
+    "token/drift": "warn"
   }
 }
