@@ -1,8 +1,10 @@
 # figqa
 
-**Design-system QA for Figma files — with no Figma.**
+**Design-system QA for Figma files — no plugin, no seat, no Enterprise plan.**
 
-No plugin, no editor runtime, no account, no network. `figqa` reads the `.fig` binary directly, reports design-system violations with a CI-usable exit code, and can **bind hard-coded colours to design tokens by writing the file back**.
+Figma puts programmatic access to your own variables behind Enterprise. Reading them — not just writing — [requires a Full seat in an Enterprise org](https://developers.figma.com/docs/rest-api/variables). On Professional or Organization you cannot get your own design tokens out with a script at all.
+
+`figqa` reads them straight out of the `.fig` file you already have. No plugin, no editor runtime, no account, no network. It reports design-system violations with a CI-usable exit code, and can **bind hard-coded colours to those tokens by writing the file back**.
 
 ```console
 $ figqa lint "design-system.fig" --rules rules/example.json
@@ -33,17 +35,30 @@ That run took one command on a 45 MB, 114,210-node file. Figma was never open.
 
 ## Why this can exist
 
-Every Figma linter on the market is a **plugin** — it needs a person with an editor seat to open the file and click. That is fine for a designer's pre-handoff check and useless as a gate: a markdown standard nobody executes doesn't block anything.
+Two walls. `figqa` goes around both.
 
-The obvious alternative is the REST API. It gets you halfway and then stops:
+### Wall 1 — the variables API is Enterprise-only
 
-| | read violations | **write the fix** |
-|---|---|---|
-| REST API | ✅ `GET /v1/files/:key` returns `boundVariables` | ❌ `POST /v1/files/:key/variables` accepts only `variableCollections` / `variableModes` / `variables` / `variableModeValues` — **it cannot bind a variable to a layer property** |
-| Plugin API | ✅ | ✅ but needs an editor runtime someone drives |
-| **writing `.fig`** | ✅ | ✅ **headless** |
+Figma's own [documentation](https://developers.figma.com/docs/rest-api/variables) states it plainly:
 
-So auto-fixing token drift without a human in the loop has exactly one path: write the file. That is what `figqa fix` does, and it is verified against Figma import — see [Phase 1g](#verified-capability).
+> To use this API, you must have a Full seat in an Enterprise org; guests cannot use the API.
+
+The requirements table lists **Enterprise** under `GET` as well as `POST`. So a team on Professional or Organization cannot programmatically read the variables it authored — not to diff them, not to sync them to code, not to check whether anything drifted. `figqa` reads the file, so the plan tier never enters into it.
+
+### Wall 2 — nothing that can *fix* drift runs unattended
+
+Every Figma linter on the market is a **plugin**: it needs a person with an editor seat to open the file and click. That is fine as a designer's pre-handoff check and useless as a gate — a standard nobody executes doesn't block anything.
+
+| | read violations | write the fix | no Figma session |
+|---|---|---|---|
+| REST API | ✅ `GET /v1/files/:key` returns `boundVariables` | ❌ `POST /v1/files/:key/variables` accepts only `variableCollections` / `variableModes` / `variables` / `variableModeValues` — **it cannot bind a variable to a layer property** | ✅ |
+| Plugin API, driven by a person | ✅ | ✅ | ❌ |
+| Plugin API, driven by an agent over [Figma's remote MCP server](https://developers.figma.com/docs/figma-mcp-server/) | ✅ | ✅ | ❌ |
+| **writing `.fig`** | ✅ | ✅ | ✅ |
+
+That third row is new, and it is worth being precise about. Since the Code to Canvas launch in February 2026, an agent **can** bind variables through the Plugin API with nobody touching the editor — verified by hand against this repo's own claims. What that path removed was the human, not the session: Figma's remote server authenticates only through "[Figma's OAuth authentication flow](https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/)", and "[only clients listed in the Figma MCP Catalog can connect](https://developers.figma.com/docs/figma-mcp-server/)" — third-party clients join a waitlist. A cron job, a PR gate, a CI container: none of them can hold an interactive OAuth session from a catalog-listed editor client.
+
+So auto-fixing token drift *with no Figma session at all* still has exactly one path: write the file. That is what `figqa fix` does, and it is verified against Figma import — see [Phase 1g](#verified-capability).
 
 ---
 
@@ -195,7 +210,7 @@ Treat `figqa fix` output as you would any generated artifact: keep the original,
 | [Grida](https://grida.co/tools/fig) | read | in-browser inspector |
 | [Albert Sikkema](https://albertsikkema.com/ai/development/tools/reverse-engineering/2026/01/23/reverse-engineering-figma-make-files.html) | write-up | Figma Make binary walkthrough |
 
-For in-canvas linting with click-to-fix, [Design Lint](https://www.figma.com/community/plugin/801195587640428208/design-lint) and YADL are better tools. `figqa` is for the case they can't serve: no runtime, no seat, no human — a gate that runs in CI.
+For in-canvas linting with click-to-fix, [Design Lint](https://www.figma.com/community/plugin/801195587640428208/design-lint) and YADL are better tools. `figqa` is for the case they can't serve: no runtime, no seat, no Figma session — a gate that runs in CI.
 
 ## License
 
