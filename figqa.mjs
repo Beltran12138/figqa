@@ -19,7 +19,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { open, save, hex, colorVariables, bindingFor, paints, guidStr } from "./lib/figfile.mjs";
-import { scanCode, rel } from "./lib/codedir.mjs";
+import { scanCode, rel, cssSystemVariables } from "./lib/codedir.mjs";
 
 const DEFAULT_RULES = {
   "color/unbound": "error",
@@ -215,14 +215,32 @@ function lintCode(scan, sysVars, rules) {
   return findings;
 }
 
-function printLintCode(scan, sysVars, findings, systemPath) {
+function printLintCode(scan, sysVars, findings, systemPath, sysInfo) {
   const errors = findings.filter((f) => f.severity === "error");
   const warns = findings.filter((f) => f.severity === "warn");
   console.log(`\n${scan.root} — ${scan.files.length} files, ${scan.colors.length} colour literals, ` +
               `${scan.refs.length} var() references, ${scan.defs.size} tokens defined`);
   console.log(systemPath
-    ? `checked against ${path.basename(systemPath)} — ${sysVars.length} colour variable values\n`
-    : `no --system given: only rules that need no design system were run\n`);
+    ? `checked against ${path.basename(systemPath)} — ${sysVars.length} colour variable values`
+    : `no --system given: only rules that need no design system were run`);
+  // How much of the design system was actually readable decides what a clean run means.
+  // A stylesheet whose palette lives in an uninstalled dependency yields almost nothing,
+  // and silence would then read as "no violations" instead of "nothing to compare against".
+  if (sysInfo) {
+    const why = [];
+    if (sysInfo.missingExamples.length) why.push(`chain ends undefined (e.g. ${sysInfo.missingExamples.join(", ")})`);
+    if (sysInfo.unparsedExamples.length) why.push(`unreadable notation (e.g. ${sysInfo.unparsedExamples.join(" / ")})`);
+    console.log(`  ${sysInfo.filesRead} stylesheet(s) read` +
+      (sysInfo.undecidable ? `, ${sysInfo.undecidable} token(s) undecided — ${why.join("; ")}`
+                           : `, every var() chain resolved`));
+    if (sysInfo.approx)
+      console.log(`  ${sysInfo.approx} value(s) fell outside sRGB and were gamut-mapped — exact-match` +
+                  ` rules can miss those, since a published fallback hex need not be the same bytes`);
+    if (sysInfo.unresolvedImports.length)
+      console.log(`  could not open: ${sysInfo.unresolvedImports.join(", ")} — install dependencies` +
+                  ` for the full palette, or results below understate coverage`);
+  }
+  console.log("");
   for (const group of [errors, warns]) {
     for (const f of group.sort((a, b) => b.count - a.count)) {
       console.log(`${f.severity === "error" ? "ERROR" : "warn "} [${f.rule}] ${f.message}`);
@@ -266,12 +284,16 @@ if (!cmd || !file || has("--help")) {
 
   figqa vars <file.fig>
   figqa lint <file.fig> [--rules rules.json] [--json]
-  figqa lint <dir> [--system <file.fig>] [--rules rules.json] [--json]
+  figqa lint <dir> [--system <file.fig|theme.css>] [--rules rules.json] [--json]
   figqa fix  <file.fig> -o <out.fig> [--mark]
 
 Pointing lint at a directory checks generated code instead of the design file. With
 --system, colours in the code are compared against the design system's own variable
 values — matched by value, since the two artifacts never share names.
+
+--system takes a .fig or a theme stylesheet. A stylesheet is followed through @import
+and its var() chains are resolved, including oklch; whatever could not be resolved is
+reported rather than dropped.
 
 --mark prefixes changed layer names with 🧪 so you can find them with Ctrl+F in Figma.`);
   process.exit(file ? 0 : 1);
@@ -281,11 +303,16 @@ values — matched by value, since the two artifacts never share names.
 if (cmd === "lint" && fs.existsSync(file) && fs.statSync(file).isDirectory()) {
   const rules = loadRules(flag("--rules"));
   const systemPath = flag("--system");
-  const sysVars = systemPath ? colorVariables(open(systemPath)) : [];
+  // The design system may be a .fig or a theme stylesheet — same shape out either way.
+  let sysVars = [], sysInfo = null;
+  if (systemPath) {
+    if (/\.(css|scss|less)$/i.test(systemPath)) { sysInfo = cssSystemVariables(systemPath); sysVars = sysInfo.vars; }
+    else sysVars = colorVariables(open(systemPath));
+  }
   const scan = scanCode(file);
   const findings = lintCode(scan, sysVars, rules);
   if (has("--json")) { console.log(JSON.stringify(findings, null, 2)); process.exit(0); }
-  process.exit(printLintCode(scan, sysVars, findings, systemPath));
+  process.exit(printLintCode(scan, sysVars, findings, systemPath, sysInfo));
 }
 
 const handle = open(file);

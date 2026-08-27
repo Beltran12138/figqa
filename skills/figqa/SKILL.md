@@ -20,7 +20,7 @@ Assumes `figqa` is on PATH (`npm link` in the repo) — otherwise use `node /pat
 ```bash
 figqa vars <file.fig>                          # colour variables, local vs library-backed
 figqa lint <file.fig> [--rules r.json] [--json]
-figqa lint <dir> --system <file.fig> [--rules r.json] [--json]
+figqa lint <dir> --system <file.fig|theme.css> [--rules r.json] [--json]
 figqa fix  <file.fig> -o <out.fig> [--mark]    # bind hard-coded colours to variables
 ```
 
@@ -34,7 +34,9 @@ figqa fix  <file.fig> -o <out.fig> [--mark]    # bind hard-coded colours to vari
 | Did the agent that wrote this UI actually use the design system? | the code dir, `--system` the `.fig` |
 | What tokens exist at all? | `vars` |
 
-The pair matters: the design system's ground truth only exists in the `.fig`, and whether the code referenced it is only observable in the code. Neither answers the question alone.
+The pair matters: the design system's ground truth only exists in the design source, and whether the code referenced it is only observable in the code. Neither answers the question alone.
+
+`--system` takes a `.fig` **or** a theme stylesheet — use the stylesheet for a Tailwind-style system (Untitled UI, shadcn) where the tokens live in CSS, and the `.fig` when the Figma library is the source. Always read the coverage line it prints before trusting a clean result: a theme sheet whose palette lives in an uninstalled dependency resolves a small fraction of the system, and `figqa` says so rather than reporting no violations.
 
 ## Rules
 
@@ -50,6 +52,7 @@ Severities and options live in a rules JSON; brand values never go in code. See 
 - **`code/dangling-token` reports its own blind spot.** If the tree imports a stylesheet that could not be read (uninstalled dependency, bare package specifier), the rule collapses to one warning naming those stylesheets instead of listing tokens. Install dependencies and re-run before treating it as a finding.
 - **A hex inside a token definition is not flagged as hard-coded.** Someone has to write the literal once. Those are judged by `token/drift` instead.
 - **`token/drift` has a benign case.** A token deliberately outside the system fires it too. It is a warning, not a defect.
+- **A gamut-mapped value may not match by bytes.** An `oklch` colour outside sRGB has no single correct hex: Tailwind's `blue-500` ships `#3B82F6` as its own fallback while a channel-clipped render is `#2B7FFF`. Exact-equality rules can miss those, and the count is printed for that reason.
 - **Library-backed variables cannot be auto-fixed.** They are referenced by `assetRef`, not `guid`, and a guid reference is silently ignored by Figma. `figqa lint` reports these as `color/unbound-library` rather than pretending. Most real team tokens are library-backed, so expect `fix` to cover less than the lint total.
 
 ## After running `fix`

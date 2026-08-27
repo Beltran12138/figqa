@@ -87,7 +87,7 @@ It documents which target answers which question, and — more usefully — the 
 ```bash
 figqa vars <file.fig>                      # list colour variables, local vs library-backed
 figqa lint <file.fig> [--rules r.json]     # report violations; exit 1 if any are error-level
-figqa lint <dir> --system <file.fig>       # same, against generated code (see below)
+figqa lint <dir> --system <file.fig|theme.css>   # same, against generated code (see below)
 figqa fix  <file.fig> -o <out.fig> [--mark]  # bind hard-coded colours to matching variables
 ```
 
@@ -156,6 +156,31 @@ $ echo $?
 | `token/drift` | an alias token whose value matches no variable in the design system — copied once, then the library moved |
 
 **Matching is by value, never by name.** A Figma variable is called `background/Tab/up`; the code calls it `--bg-tab-up`. The two artifacts share no vocabulary, so names cannot join them — but a colour is a colour. This is also why no mapping file is needed.
+
+### The design system does not have to be a `.fig`
+
+`--system` also takes a theme stylesheet, because that is where the truth lives for a Tailwind-style system:
+
+```console
+$ figqa lint ./src --system ./styles/globals.css
+
+checked against globals.css — 947 colour variable values
+  4 stylesheet(s) read, every var() chain resolved
+  265 value(s) fell outside sRGB and were gamut-mapped — exact-match rules can miss those,
+  since a published fallback hex need not be the same bytes
+```
+
+Reading definitions is not enough to do this. In Untitled UI's `theme.css`, 18 of ~500 custom properties hold a literal colour and 486 point at another `var()`, and those chains terminate in Tailwind's palette, which is in a different package. A reader that only collects definitions recovers 4% of the system and then reports no violations — which looks exactly like a clean run. So `--system` follows `@import` (relative, then `node_modules`), resolves `var()` chains transitively across modes, and understands `oklch`, which is the notation Tailwind v4 uses for all 286 of its palette entries.
+
+What it cannot resolve, it counts:
+
+| reported | meaning |
+|---|---|
+| *N* token(s) undecided — chain ends undefined | a dependency is not installed; the palette is missing, so coverage is understated |
+| *N* token(s) undecided — unreadable notation | a colour written in something not implemented yet, e.g. `color-mix()` |
+| *N* value(s) gamut-mapped | an `oklch` outside sRGB. Tailwind's `blue-500` is one: its own published fallback `#3B82F6` and a channel-clipped render `#2B7FFF` are both defensible, and exact-equality cannot match both |
+
+On the same file, with the dependency missing versus installed, coverage is 137 values versus 947. That difference is the reason these counts are printed instead of assumed.
 
 Two deliberate refusals, because a linter people uninstall is worse than no linter:
 
