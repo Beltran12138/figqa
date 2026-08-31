@@ -9,9 +9,10 @@ Deterministic design-system QA over two artifacts: the `.fig` design file and th
 
 ## Why this exists rather than the REST API
 
-- `GET /v1/files/:key/variables` **requires a Full seat in an Enterprise org**. On Professional or Organization a script cannot read the team's own variables at all. `figqa` reads the file instead, so plan tier is irrelevant.
+- `GET /v1/files/:key/variables` is documented as **requiring a Full seat in an Enterprise org**, with Enterprise listed under GET as well as POST. (Caveat, unresolved: plan access tokens exist on Organization plans and their exclusion list names `file_variables:write` but not `:read` — the two doc pages disagree, and this is untested.) `figqa` reads the file instead, so plan tier is irrelevant either way.
 - `POST /v1/files/:key/variables` accepts only collections / modes / variables / mode values. It **cannot bind a variable to a layer property**.
-- The Plugin API can bind, and since Feb 2026 an agent can drive it over Figma's remote MCP server without a human clicking. But that server takes interactive OAuth from a catalog-listed client only, so no unattended job can hold the session. Writing the `.fig` is the only path that needs no Figma session at all.
+- The Plugin API can bind, and since Feb 2026 an agent can drive it over Figma's remote MCP server without a human clicking. That server takes interactive OAuth from a catalog-listed client only — which rules out a clean CI container, but not a workstation that already completed the flow. Writing the `.fig` is the path that needs no Figma auth state anywhere.
+- **That covers the check and the rewrite, not the round trip.** No REST endpoint returns the `.fig` binary, so the file being linted is a manual export; applying `fix` means importing the result as a new file. Do not describe `figqa` to a user as a gate over their live Figma document — it gates a snapshot.
 
 ## Commands
 

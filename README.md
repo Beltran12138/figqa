@@ -2,7 +2,9 @@
 
 **Design-system QA for Figma files — no plugin, no seat, no Enterprise plan.**
 
-Figma puts programmatic access to your own variables behind Enterprise. Reading them — not just writing — [requires a Full seat in an Enterprise org](https://developers.figma.com/docs/rest-api/variables). On Professional or Organization you cannot get your own design tokens out with a script at all.
+Figma documents programmatic access to your own variables as Enterprise-only. Reading them — not just writing — [requires "a Full seat in an Enterprise org"](https://developers.figma.com/docs/rest-api/variables), and the requirements table lists **Enterprise** under `GET` as well as `POST`.
+
+One caveat I have not been able to close, and would rather state than bury: [plan access tokens](https://developers.figma.com/docs/rest-api/plan-access-tokens/) are available on **Organization** plans too, and the exclusion list on that page names `file_code_connect:write`, `file_variables:write` and `file_comments:write` — but *not* `file_variables:read`. The two pages contradict each other. Whether an Organization admin can therefore `GET` variables is **untested here**; I do not have an Organization plan token to settle it, and a personal access token cannot stand in (mine returns `403 Invalid scope(s) … requires the file_variables:read scope`, which is a scope error, not a plan verdict). If that path does work, this first wall is lower than Figma's own variables page says. It does not move the second one.
 
 `figqa` reads them straight out of the `.fig` file you already have. No plugin, no editor runtime, no account, no network. It reports design-system violations with a CI-usable exit code, and can **bind hard-coded colours to those tokens by writing the file back**.
 
@@ -43,7 +45,9 @@ Figma's own [documentation](https://developers.figma.com/docs/rest-api/variables
 
 > To use this API, you must have a Full seat in an Enterprise org; guests cannot use the API.
 
-The requirements table lists **Enterprise** under `GET` as well as `POST`. So a team on Professional or Organization cannot programmatically read the variables it authored — not to diff them, not to sync them to code, not to check whether anything drifted. `figqa` reads the file, so the plan tier never enters into it.
+The requirements table lists **Enterprise** under `GET` as well as `POST`. Taken at face value, a team on Professional or Organization is not able to programmatically read the variables it authored — not to diff them, not to sync them to code, not to check whether anything drifted. The plan-access-token caveat above is the one hole in that reading, and it is unresolved rather than disproved.
+
+`figqa` reads the file, so plan tier never enters into it either way. That is the part of this claim I can actually stand behind: it does not depend on which of those two doc pages is right.
 
 ### Wall 2 — nothing that can *fix* drift runs unattended
 
@@ -53,12 +57,29 @@ Every Figma linter on the market is a **plugin**: it needs a person with an edit
 |---|---|---|---|
 | REST API | ✅ `GET /v1/files/:key` returns `boundVariables` | ❌ `POST /v1/files/:key/variables` accepts only `variableCollections` / `variableModes` / `variables` / `variableModeValues` — **it cannot bind a variable to a layer property** | ✅ |
 | Plugin API, driven by a person | ✅ | ✅ | ❌ |
-| Plugin API, driven by an agent over [Figma's remote MCP server](https://developers.figma.com/docs/figma-mcp-server/) | ✅ | ✅ | ❌ |
-| **writing `.fig`** | ✅ | ✅ | ✅ |
+| Plugin API, driven by an agent over [Figma's remote MCP server](https://developers.figma.com/docs/figma-mcp-server/) | ✅ | ✅ | ⚠️ see below |
+| **writing `.fig`** | ✅ | ✅ | ✅ for the step itself — [but read the next section](#where-the-humans-still-are) |
 
-That third row is new, and it is worth being precise about. Since the Code to Canvas launch in February 2026, an agent **can** bind variables through the Plugin API with nobody touching the editor — verified by hand against this repo's own claims. What that path removed was the human, not the session: Figma's remote server authenticates only through "[Figma's OAuth authentication flow](https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/)", and "[only clients listed in the Figma MCP Catalog can connect](https://developers.figma.com/docs/figma-mcp-server/)" — third-party clients join a waitlist. A cron job, a PR gate, a CI container: none of them can hold an interactive OAuth session from a catalog-listed editor client.
+That third row is new, and it is worth being precise about — an earlier version of this README was not. Since the Code to Canvas launch in February 2026, an agent **can** bind variables through the Plugin API with nobody touching the editor — verified by hand against this repo's own claims. What that path removed was the human, not the session: Figma's remote server authenticates only through "[Figma's OAuth authentication flow](https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/)", and "[only clients listed in the Figma MCP Catalog can connect](https://developers.figma.com/docs/figma-mcp-server/)" — third-party clients join a waitlist.
 
-So auto-fixing token drift *with no Figma session at all* still has exactly one path: write the file. That is what `figqa fix` does, and it is verified against Figma import — see [Phase 1g](#verified-capability).
+The honest version of that constraint is narrower than "nothing can run unattended":
+
+- **A machine that has already completed the OAuth flow can be automated.** A catalog-listed client keeps its token locally, so a scheduled headless run on a developer's own workstation is a real option, not a blocked one. Call it half-unattended: no human at the moment it runs, but a human-authorised machine underneath it.
+- **A clean CI container cannot.** No stored OAuth state, no catalog-listed client, no interactive flow to complete. That is the case that genuinely has no path, and it is the case a merge gate lives in.
+
+So `figqa fix` is not the only way to bind variables without a person clicking. It is the way that needs no Figma authentication state anywhere — which is what makes it work on a build box that has never heard of your Figma account. That is a narrower claim than the one this file used to make, and it is the one that survives. Verified against Figma import — see [Phase 1g](#verified-capability).
+
+### Where the humans still are
+
+"No Figma session" is true of the step `figqa` performs. It is not true of the pipeline that step sits in, and the difference matters enough to spell out.
+
+**Getting the `.fig` in.** There is no REST endpoint that returns the binary. `GET /v1/files/:key` returns a JSON document tree; `GET /v1/images` returns renders. Neither is a `.fig`, and neither carries what this tool reads. So the file a scheduled job lints is a **manual export** — someone opened Figma and did *File → Save local copy*. Third-party exporters exist, but the ones that work drive undocumented endpoints with browser session credentials, which is the very thing this tool exists to avoid.
+
+**Getting the fix back out.** `figqa fix` writes a new `.fig`. Applying it means importing that file, and a Figma import creates a **new file** rather than overwriting the cloud original — so comments, version history and share links do not follow. *(Stated as expected Figma behaviour; not separately verified in this repo.)*
+
+The accurate claim is therefore: `figqa` removes the Figma session from **the checking and rewriting**, not from the round trip. What that buys is real but bounded — the human cost drops from *per check* to *per export*, so a nightly lint over yesterday's snapshot becomes free where it previously needed someone to open a file and click a plugin every time. What it does not buy is a gate over the live cloud document. If your requirement is "block the merge against whatever is in Figma right now", no tool here does that, and I would rather you learn it from this section than from your first pipeline.
+
+**One exception, and it is the interesting one.** Everything above is about the `.fig` target. The code target — `figqa lint <dir> --system theme.css` — has no manual step at either end: the code is in the repo, the theme stylesheet is in the repo, and nothing is exported from or imported into Figma at any point. That path is a genuine unattended CI gate with no asterisk. If you are deciding which half of this tool to adopt, that asymmetry is the honest reason to start with the code half.
 
 ---
 
@@ -287,7 +308,7 @@ Treat `figqa fix` output as you would any generated artifact: keep the original,
 | [Grida](https://grida.co/tools/fig) | read | in-browser inspector |
 | [Albert Sikkema](https://albertsikkema.com/ai/development/tools/reverse-engineering/2026/01/23/reverse-engineering-figma-make-files.html) | write-up | Figma Make binary walkthrough |
 
-For in-canvas linting with click-to-fix, [Design Lint](https://www.figma.com/community/plugin/801195587640428208/design-lint) and YADL are better tools. `figqa` is for the case they can't serve: no runtime, no seat, no Figma session — a gate that runs in CI.
+For in-canvas linting with click-to-fix, [Design Lint](https://www.figma.com/community/plugin/801195587640428208/design-lint) and YADL are better tools, and on the live document they are the *only* tools — see [Where the humans still are](#where-the-humans-still-are). `figqa` is for the case they can't serve: checking an exported file, or generated code, on a machine with no Figma runtime, no seat and no Figma auth state.
 
 ## License
 

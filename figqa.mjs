@@ -12,9 +12,14 @@
  * Why `fix` cannot be a REST script: POST /v1/files/:key/variables accepts only
  * variableCollections / variableModes / variables / variableModeValues — it cannot bind a
  * variable to a layer property. The Plugin API can, and since Feb 2026 an agent can drive it
- * over Figma's remote MCP server without a human clicking — but that server takes interactive
- * OAuth from a catalog-listed client only, so no unattended job can hold the session.
- * Writing the file is the only path that needs no Figma session at all. Verified (Phase 1g).
+ * over Figma's remote MCP server without a human clicking. That server takes interactive OAuth
+ * from a catalog-listed client only — which rules out a clean CI container, but NOT a machine
+ * that already completed the flow and kept the token. So this is not the only unattended path;
+ * it is the only one needing no Figma auth state anywhere. Verified (Phase 1g).
+ *
+ * Scope of that claim: it covers the check and the rewrite, not the round trip. No REST endpoint
+ * returns the .fig binary, so the input is a manual export, and applying `fix` means importing
+ * the output as a new file. See README "Where the humans still are".
  */
 import fs from "node:fs";
 import path from "node:path";
