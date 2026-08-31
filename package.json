@@ -22,8 +22,22 @@
     "agent-skill",
     "ai-generated-code"
   ],
-  "author": "",
+  "author": "Beltran12138 (https://github.com/Beltran12138)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Beltran12138/figqa.git"
+  },
+  "homepage": "https://github.com/Beltran12138/figqa#readme",
+  "bugs": "https://github.com/Beltran12138/figqa/issues",
+  "files": [
+    "figqa.mjs",
+    "lib/",
+    "research/",
+    "rules/",
+    "skills/",
+    "tools/"
+  ],
   "type": "commonjs",
   "dependencies": {
     "adm-zip": "^0.6.0",
