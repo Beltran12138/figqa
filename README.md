@@ -4,7 +4,7 @@
 
 Figma documents programmatic access to your own variables as Enterprise-only. Reading them — not just writing — [requires "a Full seat in an Enterprise org"](https://developers.figma.com/docs/rest-api/variables), and the requirements table lists **Enterprise** under `GET` as well as `POST`.
 
-One caveat I have not been able to close, and would rather state than bury: [plan access tokens](https://developers.figma.com/docs/rest-api/plan-access-tokens/) are available on **Organization** plans too, and the exclusion list on that page names `file_code_connect:write`, `file_variables:write` and `file_comments:write` — but *not* `file_variables:read`. The two pages contradict each other. Whether an Organization admin can therefore `GET` variables is **untested here**; I do not have an Organization plan token to settle it, and a personal access token cannot stand in (mine returns `403 Invalid scope(s) … requires the file_variables:read scope`, which is a scope error, not a plan verdict). If that path does work, this first wall is lower than Figma's own variables page says. It does not move the second one.
+Verified on a real Organization-tier account, not just read off the docs — see [How the Enterprise gate was verified](#how-the-enterprise-gate-was-verified).
 
 `figqa` reads them straight out of the `.fig` file you already have. No plugin, no editor runtime, no account, no network. It reports design-system violations with a CI-usable exit code, and can **bind hard-coded colours to those tokens by writing the file back**.
 
@@ -45,9 +45,18 @@ Figma's own [documentation](https://developers.figma.com/docs/rest-api/variables
 
 > To use this API, you must have a Full seat in an Enterprise org; guests cannot use the API.
 
-The requirements table lists **Enterprise** under `GET` as well as `POST`. Taken at face value, a team on Professional or Organization is not able to programmatically read the variables it authored — not to diff them, not to sync them to code, not to check whether anything drifted. The plan-access-token caveat above is the one hole in that reading, and it is unresolved rather than disproved.
+The requirements table lists **Enterprise** under `GET` as well as `POST`. So a team on Professional or Organization cannot programmatically read the variables it authored — not to diff them, not to sync them to code, not to check whether anything drifted. `figqa` reads the file, so plan tier never enters into it.
 
-`figqa` reads the file, so plan tier never enters into it either way. That is the part of this claim I can actually stand behind: it does not depend on which of those two doc pages is right.
+#### How the Enterprise gate was verified
+
+Documentation describes intent; it does not always describe behaviour. This one was checked against a live Organization-tier account, and the interesting evidence is not the docs.
+
+1. The [Variables page](https://developers.figma.com/docs/rest-api/variables) lists **Enterprise** under `GET` and `POST`.
+2. The [Scopes page](https://developers.figma.com/docs/rest-api/scopes/) marks both `file_variables:read` and `file_variables:write` — **"Note: Enterprise plan only."**
+3. Calling `GET /v1/files/:key/variables/local` with an Organization-tier personal access token returns `403 Invalid scope(s) … This endpoint requires the file_variables:read scope`. **On its own this proves nothing** — a missing scope is not a plan verdict, and reading it as one is the easy mistake here.
+4. **The decisive one.** On that Organization account, the personal-access-token creation screen offers exactly 15 scopes: 1 user, 5 file, 3 design-system, 3 development, 1 folder, 2 webhook. There is **no Variables section at all**. Cross-referencing the full scope table: of the 7 scopes marked Enterprise-only (`file_variables:read`, `file_variables:write`, `library_analytics:read`, and four `org:*`), the account can be granted **zero**. The gate is in what the plan may be issued, not in what the endpoint rejects.
+
+One apparent contradiction is worth resolving, because it looks like a hole and is not one. [Plan access tokens](https://developers.figma.com/docs/rest-api/plan-access-tokens/) are available on **Organization** plans, and that page's exclusion list names `file_variables:write` but not `file_variables:read` — which reads like an admission that Organizations can GET variables. They cannot. That list is an *endpoint-level* exception ("even where your plan grants this scope, a plan token may not use it"): `:write` is excluded so that even Enterprise cannot write variables with a plan token, while `:read` is absent because Enterprise plan tokens genuinely may read. An Organization is never issued the scope in the first place, so it has no reason to appear there. Consistent, not contradictory.
 
 ### Wall 2 — nothing that can *fix* drift runs unattended
 
