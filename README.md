@@ -86,12 +86,18 @@ The accurate claim is therefore: `figqa` removes the Figma session from **the ch
 ## Install
 
 ```bash
-git clone https://github.com/Beltran12138/figqa
-cd figqa && npm install          # kiwi-schema, adm-zip, fzstd
-node figqa.mjs --help
+npm i -g figqa      # or: npx figqa --help
+figqa --help
 ```
 
-Node 24+ (needs the built-in `zlib.zstdCompressSync`). `npm link` puts `figqa` on PATH.
+Node 24+ (needs the built-in `zlib.zstdCompressSync`). Deps are `kiwi-schema`, `adm-zip`, `fzstd`.
+
+From source, if you want the test material and research notes as well:
+
+```bash
+git clone https://github.com/Beltran12138/figqa
+cd figqa && npm install && npm link
+```
 
 ### As a Claude Code skill
 
